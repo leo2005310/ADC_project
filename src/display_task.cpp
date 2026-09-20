@@ -13,6 +13,11 @@ constexpr uint16_t Background = ST77XX_BLACK;
 constexpr uint16_t Muted = 0x8410;
 constexpr uint16_t Grid = 0x2104;
 
+struct VoltageDisplayCache {
+  char text[8] = {};
+  uint16_t color = 0;
+};
+
 void drawStaticScreen(Adafruit_ST7789 &tft) {
   tft.fillScreen(Background);
   tft.setTextWrap(false);
@@ -47,17 +52,23 @@ const char *stateText(const DisplayFrame &frame, bool stale) {
 }
 
 void drawFrame(Adafruit_ST7789 &tft, GFXcanvas16 &waveform,
-               const DisplayFrame &frame, bool stale) {
+               const DisplayFrame &frame, bool stale, VoltageDisplayCache &voltageCache) {
   char text[32];
   const bool showValue = frame.valid && !stale && frame.state == AdcState::Running;
-  tft.setTextSize(3);
-  tft.setTextColor(showValue ? ST77XX_CYAN : Muted, Background);
-  tft.setCursor(12, 48);
   if (showValue) snprintf(text, sizeof(text), "%5.3f V", frame.milliVolts / 1000.0);
   else snprintf(text, sizeof(text), "--.--- V");
-  // 字段固定清理到 8 个字符，避免错误状态恢复后残留一个 V。
-  tft.fillRect(12, 48, 8 * 18, 24, Background);
-  tft.print(text);
+  char voltageText[9];
+  snprintf(voltageText, sizeof(voltageText), "%-8.8s", text);
+  const uint16_t voltageColor = showValue ? ST77XX_CYAN : Muted;
+  // 固定 8 个字符并补空格，只覆盖变化的字符；不先清屏，避免数字闪烁。
+  // 颜色变化时也重绘，确保正常值与失效占位符之间正确切换。
+  for (size_t i = 0; i < sizeof(voltageCache.text); ++i) {
+    if (voltageText[i] != voltageCache.text[i] || voltageColor != voltageCache.color) {
+      tft.drawChar(12 + i * 18, 48, voltageText[i], voltageColor, Background, 3);
+      voltageCache.text[i] = voltageText[i];
+    }
+  }
+  voltageCache.color = voltageColor;
   tft.setTextSize(1);
   tft.setTextColor(ST77XX_WHITE, Background);
   tft.setCursor(12, 79);
@@ -120,6 +131,7 @@ void DisplayTask(void *argument) {
 
   bool firstDraw = true;
   bool lastStale = false;
+  VoltageDisplayCache voltageCache;
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
     const uint32_t previousSequence = latest.sequence;
@@ -132,7 +144,7 @@ void DisplayTask(void *argument) {
     }
     if (received || firstDraw || stale != lastStale) {
       const int64_t start = esp_timer_get_time();
-      drawFrame(tft, waveform, latest, stale);
+      drawFrame(tft, waveform, latest, stale, voltageCache);
       const uint32_t drawUs = esp_timer_get_time() - start;
       if (drawUs > stats.maxDrawUs) stats.maxDrawUs = drawUs;
       // 只统计新有效数据完成的绘制，不将等待界面计入数据 FPS。
