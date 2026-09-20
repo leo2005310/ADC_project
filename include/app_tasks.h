@@ -5,6 +5,7 @@
 
 struct AppContext {
   QueueHandle_t displayQueue = nullptr;
+  QueueHandle_t telemetryQueue = nullptr;
   QueueHandle_t adcStatsQueue = nullptr;
   QueueHandle_t displayStatsQueue = nullptr;
   TaskHandle_t adcTask = nullptr;

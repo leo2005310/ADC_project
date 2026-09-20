@@ -79,6 +79,7 @@ void publishFrame(AppContext &app, AdcState state) {
   ++frame.sequence;
   stats.state = state;
   xQueueOverwrite(app.displayQueue, &frame);
+  xQueueOverwrite(app.telemetryQueue, &frame);
 }
 
 [[noreturn]] void parkWithError(AppContext &app, esp_err_t error) {

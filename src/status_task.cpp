@@ -4,8 +4,12 @@
 
 #include "app_tasks.h"
 #include "app_types.h"
+#include "wave_protocol.h"
 
 namespace {
+// StatusTask exclusively owns these buffers and all application serial output.
+DisplayFrame telemetry;
+uint8_t packet[WaveProtocol::MaxPacketBytes];
 const char *stateName(AdcState state) {
   switch (state) {
     case AdcState::Starting: return "starting";
@@ -21,7 +25,7 @@ const char *stateName(AdcState state) {
 void StatusTask(void *argument) {
   auto &app = *static_cast<AppContext *>(argument);
   ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-  Serial.begin(115200);
+  Serial.begin(AppConfig::SerialBaud);
   AdcStats adc;
   DisplayStats display;
   uint32_t previousSamples = 0;
@@ -29,7 +33,15 @@ void StatusTask(void *argument) {
   int64_t previousTime = esp_timer_get_time();
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
-    vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(AppConfig::StatusPeriodMs));
+    vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(AppConfig::TelemetryPeriodMs));
+    if (xQueuePeek(app.telemetryQueue, &telemetry, 0) == pdTRUE) {
+      const size_t size = WaveProtocol::encode(telemetry, millis(), packet, sizeof(packet));
+      Serial.write(packet, size);
+    }
+    if (xTaskGetTickCount() - lastWake >= pdMS_TO_TICKS(AppConfig::TelemetryPeriodMs)) {
+      lastWake = xTaskGetTickCount();
+    }
+    if (esp_timer_get_time() - previousTime < AppConfig::StatusPeriodMs * 1000LL) continue;
     xQueuePeek(app.adcStatsQueue, &adc, 0);
     xQueuePeek(app.displayStatsQueue, &display, 0);
     const int64_t now = esp_timer_get_time();
@@ -62,7 +74,7 @@ void StatusTask(void *argument) {
         static_cast<unsigned long>(ESP.getPsramSize()), static_cast<unsigned long>(ESP.getFreePsram()),
         esp_err_to_name(adc.lastError), esp_err_to_name(display.lastError));
     // 即使串口短时阻塞，也不忙循环追赶旧的输出周期。
-    if (xTaskGetTickCount() - lastWake >= pdMS_TO_TICKS(AppConfig::StatusPeriodMs)) {
+    if (xTaskGetTickCount() - lastWake >= pdMS_TO_TICKS(AppConfig::TelemetryPeriodMs)) {
       lastWake = xTaskGetTickCount();
     }
   }

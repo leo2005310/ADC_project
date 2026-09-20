@@ -16,9 +16,10 @@ AppContext app;
   if (app.displayTask) vTaskDelete(app.displayTask);
   if (app.statusTask) vTaskDelete(app.statusTask);
   if (app.displayQueue) vQueueDelete(app.displayQueue);
+  if (app.telemetryQueue) vQueueDelete(app.telemetryQueue);
   if (app.adcStatsQueue) vQueueDelete(app.adcStatsQueue);
   if (app.displayStatsQueue) vQueueDelete(app.displayStatsQueue);
-  Serial.begin(115200);
+  Serial.begin(AppConfig::SerialBaud);
   for (;;) {
     Serial.println("Startup failed: cannot allocate RTOS queues/tasks.");
     delay(1000);
@@ -28,9 +29,10 @@ AppContext app;
 
 void setup() {
   app.displayQueue = xQueueCreate(1, sizeof(DisplayFrame));
+  app.telemetryQueue = xQueueCreate(1, sizeof(DisplayFrame));
   app.adcStatsQueue = xQueueCreate(1, sizeof(AdcStats));
   app.displayStatsQueue = xQueueCreate(1, sizeof(DisplayStats));
-  if (!app.displayQueue || !app.adcStatsQueue || !app.displayStatsQueue) startupFailed();
+  if (!app.displayQueue || !app.telemetryQueue || !app.adcStatsQueue || !app.displayStatsQueue) startupFailed();
 
   if (xTaskCreatePinnedToCore(ADCProcessTask, "ADCProcessTask", AppConfig::AdcStackBytes,
                               &app, AppConfig::AdcPriority, &app.adcTask, AppConfig::AdcCore) != pdPASS ||
